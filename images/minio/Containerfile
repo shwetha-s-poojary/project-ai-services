@@ -1,0 +1,32 @@
+FROM registry.access.redhat.com/ubi9/ubi:9.6 AS builder
+ARG TARGETARCH
+ARG RELEASE
+
+ENV GOPATH=/go
+ENV CGO_ENABLED=0
+
+WORKDIR /minio/bin
+RUN curl https://dl.min.io/server/minio/release/linux-${TARGETARCH}/archive/minio.${RELEASE} -o /minio/bin/minio && \
+    curl https://dl.min.io/client/mc/release/linux-${TARGETARCH}/mc -o /minio/bin/mc && \
+    chmod +x /minio/bin/minio && \
+    chmod +x /minio/bin/mc
+
+FROM registry.access.redhat.com/ubi9/ubi-micro:9.6
+
+ENV MINIO_ACCESS_KEY_FILE=access_key \
+    MINIO_SECRET_KEY_FILE=secret_key \
+    MINIO_ROOT_USER_FILE=access_key \
+    MINIO_ROOT_PASSWORD_FILE=secret_key \
+    MINIO_KMS_SECRET_KEY_FILE=kms_master_key \
+    MINIO_CONFIG_ENV_FILE=config.env \
+    MC_CONFIG_DIR=/tmp/.mc
+
+COPY --from=builder /minio/bin/minio* /usr/bin/
+COPY --from=builder /minio/bin/mc* /usr/bin/
+
+EXPOSE 9000
+VOLUME ["/data"]
+
+# TODO: Run as non-root user
+
+ENTRYPOINT ["minio"]

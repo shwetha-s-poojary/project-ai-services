@@ -1,0 +1,19 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.24 AS builder
+ARG ETCD_VERSION
+
+USER root
+RUN curl -fSL -o etcd.tar.gz https://github.com/etcd-io/etcd/archive/refs/tags/v${ETCD_VERSION}.tar.gz && \
+    mkdir -p /etcd && \
+    tar -zxf etcd.tar.gz -C /etcd --strip-components=1 && \
+    rm -rf etcd.tar.gz && \
+    cd /etcd && \
+    make -j$nproc
+
+FROM registry.access.redhat.com/ubi9/ubi-micro:9.6
+
+COPY --from=builder /etcd/bin/etcd /usr/bin/etcd
+COPY --from=builder /etcd/bin/etcdctl /usr/bin/etcdctl
+COPY --from=builder /etcd/bin/etcdutl /usr/bin/etcdutl
+
+EXPOSE 2379 2380
+CMD [ "etcd" ]
