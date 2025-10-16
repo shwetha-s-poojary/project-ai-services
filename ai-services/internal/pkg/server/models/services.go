@@ -9,3 +9,8 @@ type Service struct {
 type GetServicesResp struct {
 	Services []Service `json:"services"`
 }
+
+type ServiceDeployReq struct {
+	Name   string         `json:"name" binding:"required"`
+	Params map[string]any `json:"params"`
+}

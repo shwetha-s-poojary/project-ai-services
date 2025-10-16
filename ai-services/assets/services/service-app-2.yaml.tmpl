@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .PodName }}
+spec:
+  containers:
+    - name: web
+      image: docker.io/library/nginx:latest
+      ports:
+        - containerPort: 80
+          hostPort: {{ .HostPort }}
+      env:
+        {{- range $key, $val := .Env }}
+        - name: {{ $key }}
+          value: "{{ $val }}"
+        {{- end }}
+    - name: sidecar
+      image: "docker.io/library/alpine:latest"
+      command: ["sh", "-c", "while true; do echo sidecar alive; sleep 5; done"]

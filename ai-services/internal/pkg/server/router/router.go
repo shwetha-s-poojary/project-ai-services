@@ -17,7 +17,9 @@ func CreateRouter() *gin.Engine {
 	v1 := router.Group("/api/v1")
 
 	serviceHandler := handlers.NewServicesHandler()
-	v1.GET("/services", serviceHandler.Get)
+	v1.GET("/services", serviceHandler.GetOffered)
+	v1.GET("/services/stats", serviceHandler.GetStats)
+	v1.POST("/services/deploy", serviceHandler.Deploy)
 
 	return router
 }
