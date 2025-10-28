@@ -5,7 +5,7 @@ TAG?=${MINIO_RELEASE}
 
 CONTAINER_BUILDER?=podman
 build:
-	$(CONTAINER_BUILDER) build --build-arg MINIO_RELEASE=${MINIO_RELEASE} -t $(REGISTRY)/$(IMAGE):$(TAG) .
+	$(CONTAINER_BUILDER) build --pull=always --build-arg MINIO_RELEASE=${MINIO_RELEASE} -t $(REGISTRY)/$(IMAGE):$(TAG) .
 .PHONY: build
 
 push:

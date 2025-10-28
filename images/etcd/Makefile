@@ -4,7 +4,7 @@ TAG?=3.6.5
 
 CONTAINER_BUILDER?=podman
 build:
-	$(CONTAINER_BUILDER) build --build-arg ETCD_VERSION=${TAG} -t $(REGISTRY)/$(IMAGE):$(TAG) .
+	$(CONTAINER_BUILDER) build --pull=always --build-arg ETCD_VERSION=${TAG} -t $(REGISTRY)/$(IMAGE):$(TAG) .
 .PHONY: build
 
 push:
