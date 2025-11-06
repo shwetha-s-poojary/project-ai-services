@@ -34,14 +34,12 @@ class MilvusVectorStore:
         host=os.getenv("MILVUS_HOST"),
         port=os.getenv("MILVUS_PORT"),
         db_prefix=os.getenv("MILVUS_DB_PREFIX"),
-        emb_name=None,
-        llm_name=None
+        c_name=os.getenv("MILVUS_COLLECTION_NAME")
     ):
         self.host = host
         self.port = port
         self.db_prefix = db_prefix
-        self.emb_name = emb_name
-        self.llm_name = llm_name
+        self.c_name = c_name
         self.collection = None
         self.collection_name = None
         self._embedder = None
@@ -54,8 +52,7 @@ class MilvusVectorStore:
         connections.connect("default", host=self.host, port=self.port)
 
     def _generate_collection_name(self):
-        base = f"{self.emb_name}_{self.llm_name}"
-        hash_part = hashlib.md5(base.encode()).hexdigest()
+        hash_part = hashlib.md5(self.c_name.encode()).hexdigest()
         return f"{self.db_prefix}_{hash_part}"
 
     def _get_index_paths(self):
@@ -293,19 +290,3 @@ class MilvusVectorStore:
 
         else:
             raise ValueError("Invalid search mode. Choose from ['dense', 'sparse', 'hybrid'].")
-
-
-class VectorStoreManager:
-    def __init__(self):
-        self.vectorstore = None
-        self.last_config = {}
-
-    def initialize_vectorstore(self, emb_name, vlm_name, llm_name, db_name_prefix):
-        self.vectorstore = MilvusVectorStore(db_prefix=db_name_prefix, emb_name=emb_name, vlm_name=vlm_name, llm_name=llm_name)
-        self.last_config = {
-            "emb": emb_name,
-            "vlm": vlm_name,
-            "llm": llm_name,
-            "db_prefix": db_name_prefix
-        }
-        return self.vectorstore

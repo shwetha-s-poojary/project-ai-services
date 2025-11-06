@@ -26,9 +26,6 @@ spec:
       args: [
           "/home/senuser/container-scripts/vllm_start.sh --served-model-name ibm-granite/granite-3.3-8b-instruct"
       ]
-      volumeMounts:
-        - mountPath: /dev/shm
-          name: dshm
       livenessProbe:
         httpGet:
           path: /health
@@ -70,6 +67,8 @@ spec:
         - mountPath: /models:Z
           name: models
           readOnly: true
+        - mountPath: /dev/shm
+          name: dshm
     - name: embedding
       image: icr.io/ppc64le-oss/vllm-ppc64le:0.9.1
       command: ["/bin/sh", "-c"]

@@ -3,7 +3,7 @@ import re
 from common.llm_utils import query_vllm
 from common.misc_utils import get_logger
 from retrieve.reranker_utils import rerank_documents
-from retrieve.retrieval_utils import retrieve_documents, show_document_content, contains_chinese_regex
+from retrieve.retrieval_utils import retrieve_documents, contains_chinese_regex
 
 logger = get_logger("backend_utils")
 

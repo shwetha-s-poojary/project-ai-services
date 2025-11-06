@@ -4,4 +4,5 @@ description: "Description of RAG purpose"
 smtLevel: 2
 podTemplateExecutions:
   - [milvus.yaml.tmpl, vllm-server.yaml.tmpl]
-  - [chat-bot.yaml.tmpl, docling.yaml.tmpl]
+  - [clean-docs.yaml.tmpl]
+  - [ingest-docs.yaml.tmpl, chat-bot.yaml.tmpl]

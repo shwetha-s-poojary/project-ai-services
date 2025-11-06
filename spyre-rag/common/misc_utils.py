@@ -4,8 +4,7 @@ import logging
 
 LOG_LEVEL = logging.INFO
 
-LOCAL_CACHE_DIR = os.getenv("CACHE_DIR")
-os.makedirs(LOCAL_CACHE_DIR, exist_ok=True)
+LOCAL_CACHE_DIR = "/var/cache"
 
 def set_log_level(level):
     global LOG_LEVEL
@@ -75,7 +74,7 @@ def get_model_endpoints():
     emb_model_dict = {
         'emb_endpoint': os.getenv("EMB_ENDPOINT"),
         'emb_model':    os.getenv("EMB_MODEL"),
-        'max_tokens':   int(os.getenv("EMB_MAX_TOKENS")),
+        'max_tokens':   int(os.getenv("EMB_MAX_TOKENS", "512")),
     }
 
     llm_model_dict = {
@@ -84,8 +83,8 @@ def get_model_endpoints():
     }
 
     reranker_model_dict = {
-            'reranker_endpoint': os.getenv("RERANKER_ENDPOINT"),
-            'reranker_model':    os.getenv("RERANKER_MODEL"),
-        }
+        'reranker_endpoint': os.getenv("RERANKER_ENDPOINT"),
+        'reranker_model':    os.getenv("RERANKER_MODEL"),
+    }
 
     return emb_model_dict, llm_model_dict, reranker_model_dict

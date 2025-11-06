@@ -1,4 +1,3 @@
-import os
 import json
 import time
 import fitz
@@ -379,7 +378,10 @@ def convert_and_process(path, doc_converter, out_path, llm_model, llm_endpoint):
 def extract_document_data(input_paths, out_path, llm_model, llm_endpoint, force=False):
     # Accelerator & pipeline options
     pipeline_options = PdfPipelineOptions()
-    pipeline_options.artifacts_path = os.getenv("DOCLING_MODELS_DIR")
+
+    # Docling model files are getting downloaded to this /var/docling-models dir by this project-ai-services/images/rag-base/download_docling_models.py script in project-ai-services/images/rag-base/Containerfile
+    pipeline_options.artifacts_path = "/var/docling-models"
+    
     pipeline_options.do_table_structure = True
     pipeline_options.table_structure_options.do_cell_matching = True
     pipeline_options.do_ocr = False

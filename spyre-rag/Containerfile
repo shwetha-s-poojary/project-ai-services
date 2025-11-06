@@ -1,10 +1,8 @@
-FROM icr.io/ai-services-private/rag-base:v0.0.1
+FROM icr.io/ai-services-private/rag-base:v0.0.3
 
 WORKDIR /opt/rag
 
-COPY common .
-COPY ingest .
-COPY retrive .
+COPY common common
+COPY ingest ingest
+COPY retrieve retrieve
 COPY prompts.json .
-
-ENTRYPOINT [ "sleep", "infinity" ]

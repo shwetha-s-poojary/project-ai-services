@@ -1,7 +1,7 @@
 import json
 import requests
 import numpy as np
-from misc_utils import get_logger
+from common.misc_utils import get_logger
 
 logger = get_logger("embed")
 
@@ -29,7 +29,7 @@ class FastAPIEmbeddingFunction:
                 "Content-type": "application/json"
             }
             response = requests.post(
-                self.emb_endpoint,
+                f"{self.emb_endpoint}/v1/embeddings",
                 data=json.dumps(payload),
                 headers=headers
             )

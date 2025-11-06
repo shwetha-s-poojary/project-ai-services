@@ -1,9 +1,8 @@
 import json
-import os
 
 from flask import Flask, request, jsonify, Response, stream_with_context
 import time
-from common.db_utils import MilvusVectorStore, VectorStoreManager
+from common.db_utils import MilvusVectorStore
 from common.misc_utils import get_model_endpoints, get_logger
 from retrieve.backend_utils import search_and_answer_backend, search_only
 from common.llm_utils import query_vllm_stream
@@ -11,9 +10,6 @@ from common.llm_utils import query_vllm_stream
 logger = get_logger("backend")
 
 vectorstore = None
-MILVUS_HOST = os.getenv("MILVUS_HOST")
-MILVUS_PORT = os.getenv("MILVUS_PORT")
-DB_NAME_PREFIX = os.getenv("MILVUS_DB_PREFIX")
 TRUNCATION      = True
 
 # Globals to be set dynamically
@@ -21,41 +17,15 @@ emb_model_dict = {}
 llm_model_dict = {}
 reranker_model_dict = {}
 
-# Keep track of the last used config for vectorstore
-vector_store_manager = VectorStoreManager()
-
 def initialize_models():
     global emb_model_dict, llm_model_dict, reranker_model_dict
     emb_model_dict, llm_model_dict, reranker_model_dict = get_model_endpoints()
 
-def initialize_vectorstore_if_needed(db_name_prefix):
-    current_config = {
-        "emb": emb_model_dict["emb_model"],
-        "llm": llm_model_dict["llm_model"],
-        "db_prefix": db_name_prefix,
-    }
-
-    config_changed = current_config != vector_store_manager.last_config
-
-    if vector_store_manager.vectorstore is None or config_changed:
-        logger.info("🔄 Reinitializing vectorstore due to config change...")
-        vectorstore = MilvusVectorStore(
-            host=MILVUS_HOST,
-            port=MILVUS_PORT,
-            db_prefix=db_name_prefix,
-            emb_name=emb_model_dict["emb_model"],
-            llm_name=llm_model_dict["llm_model"]
-        )
-        vector_store_manager.vectorstore = vectorstore
-        vector_store_manager.last_config = current_config
-        return vectorstore
-
-    logger.info("✅ Reusing existing vectorstore.")
-    return vector_store_manager.vectorstore
-
+def initialize_vectorstore():
+    global vectorstore
+    vectorstore = MilvusVectorStore()
 
 app = Flask(__name__)
-
 
 @app.route("/generate", methods=["POST"])
 def generate():
@@ -74,8 +44,6 @@ def generate():
         llm_endpoint = llm_model_dict['llm_endpoint']
         reranker_model = reranker_model_dict['reranker_model']
         reranker_endpoint = reranker_model_dict['reranker_endpoint']
-
-        vectorstore = initialize_vectorstore_if_needed(DB_NAME_PREFIX)
 
         stop_words = ""
 
@@ -122,7 +90,6 @@ def stream():
         reranker_model = reranker_model_dict['reranker_model']
         reranker_endpoint = reranker_model_dict['reranker_endpoint']
 
-        vectorstore = initialize_vectorstore_if_needed(DB_NAME_PREFIX)
         docs = search_only(
             prompt,
             emb_model, emb_endpoint, emb_max_tokens,
@@ -170,7 +137,6 @@ def get_reference_docs():
         reranker_model = reranker_model_dict['reranker_model']
         reranker_endpoint = reranker_model_dict['reranker_endpoint']
 
-        vectorstore = initialize_vectorstore_if_needed(DB_NAME_PREFIX)
         docs = search_only(
             prompt,
             emb_model, emb_endpoint, emb_max_tokens,
@@ -191,4 +157,5 @@ def get_reference_docs():
 
 if __name__ == "__main__":
     initialize_models()
+    initialize_vectorstore()
     app.run(host="0.0.0.0", port=5000)

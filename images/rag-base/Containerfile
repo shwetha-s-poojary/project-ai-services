@@ -23,6 +23,7 @@ RUN ln /usr/local/lib64/libopenjp2.so /usr/local/lib64/libopenjp2.so.7
 RUN ln -s /usr/lib64/libclang.so.19.1 /usr/lib64/libclang.so
 ENV LD_LIBRARY_PATH=/usr/local/lib64:$LD_LIBRARY_PATH
 COPY requirements.txt .
+COPY download_docling_models.py .
 
 RUN --mount=type=bind,from=docling-builder,source=/opt/docling-build/docling/dist/,target=/opt/wheels/docling-wheels/,ro \
     --mount=type=bind,from=docling-builder,source=/opt/docling-build/opencv-python/,target=/opt/wheels/opencv-wheels/,ro \
@@ -30,4 +31,5 @@ RUN --mount=type=bind,from=docling-builder,source=/opt/docling-build/docling/dis
     --mount=type=bind,from=docling-builder,source=/opt/docling-build/pypdfium2/,target=/opt/wheels/pypdfium-wheels/,ro \
     --mount=type=bind,from=docling-builder,source=/opt/docling-build/vision/dist/,target=/opt/wheels/torch-vision-wheels/,ro \
     python3 -m venv /var/venv && source /var/venv/bin/activate && \
-    pip3 install -r requirements.txt --extra-index-url=https://wheels.developerfirst.ibm.com/ppc64le/linux
+    pip3 install -r requirements.txt --extra-index-url=https://wheels.developerfirst.ibm.com/ppc64le/linux && \
+    python download_docling_models.py
