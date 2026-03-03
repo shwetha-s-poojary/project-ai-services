@@ -4,7 +4,7 @@ from enum import Enum
 from functools import partial
 import json
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 import uuid
 from common.misc_utils import get_logger
 
@@ -56,7 +56,7 @@ def generate_document_id(filename):
     return str(document_id)
 
 
-def initialize_job_state(job_id: str, operation: str, documents_info: list):
+def initialize_job_state(job_id: str, operation: str, documents_info: list, output_format: str):
     """
     Creates the job status file and individual document metadata files.
     documents_info: List of dicts with {'id': uuid, 'name': filename, 'type': op_type}
@@ -88,7 +88,7 @@ def initialize_job_state(job_id: str, operation: str, documents_info: list):
             "name": doc,
             "type": operation,
             "status": DocStatus.ACCEPTED,
-            "output_format": OutputFormat.JSON,
+            "output_format": output_format,
             "completed_at": None,
             "error": "",
             "pages": 0,
@@ -155,3 +155,56 @@ async def stage_upload_files(job_id: str, files: List[dict], staging_dir: str, f
         except Exception as e:
             logger.error(f"Failed to stage {filename} for job {job_id}: {e}")
             raise
+
+
+def read_job_file(job_file: Path) -> Optional[dict]:
+    """Reads and parses a single job status JSON file. Returns None on failure."""
+    try:
+        with open(job_file, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        logger.warning(f"Skipping unreadable job file {job_file.name}: {e}")
+        return None
+
+
+def format_job_response(job_data: dict) -> dict:
+    """Projects a raw job status dict down to the public API response shape.
+
+    The on-disk format may carry internal fields (e.g. last_updated_at).
+    This function returns only the fields defined in the design doc.
+    """
+    documents = job_data.get("documents", [])
+    formatted_docs = [
+        {
+            "id": doc.get("id", ""),
+            "name": doc.get("name", ""),
+            "status": doc.get("status", ""),
+        }
+        for doc in documents
+    ]
+
+    return {
+        "job_id": job_data.get("job_id", ""),
+        "operation": job_data.get("operation", ""),
+        "status": job_data.get("status", ""),
+        "submitted_at": job_data.get("submitted_at", ""),
+        "documents": formatted_docs,
+        "error": job_data.get("error", ""),
+    }
+
+
+def load_all_jobs() -> List[dict]:
+    """Loads every *_status.json from the jobs directory, sorted newest-first."""
+    jobs_dir = Path(JOBS_DIR)
+    if not jobs_dir.exists():
+        return []
+
+    all_jobs = []
+    for job_file in jobs_dir.glob("*_status.json"):
+        job_data = read_job_file(job_file)
+        if job_data is not None:
+            all_jobs.append(job_data)
+
+    # Sort by submitted_at descending so the latest job is first
+    all_jobs.sort(key=lambda j: j.get("submitted_at", ""), reverse=True)
+    return all_jobs

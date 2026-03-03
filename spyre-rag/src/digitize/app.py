@@ -25,6 +25,7 @@ logger = get_logger("app")
 import common.digitize_utils as dg_util
 from common.misc_utils import *
 from digitize.ingest import ingest 
+from digitize.digitize import digitize
 from digitize.status import StatusManager
 
 app = FastAPI(title="Digitize Documents Service")
@@ -37,18 +38,28 @@ logger = get_logger("digitize_server")
 
 CACHE_DIR = "/var/cache"
 DOCS_DIR = f"{CACHE_DIR}/docs"
+JOBS_DIR = f"{CACHE_DIR}/jobs"
 STAGING_DIR = f"{CACHE_DIR}/staging"
 
-async def digitize_documents(job_id: str, filenames: List[str], output_format: dg_util.OutputFormat):
+async def digitize_documents(job_id: str, filenames: List[str], doc_id_dict: dict, output_format: dg_util.OutputFormat):
+    status_mgr = StatusManager(job_id)
+    job_staging_path = Path(STAGING_DIR) / f"{job_id}"
+    
     try:
-        # Business logic for document conversion.
-        pass
+        logger.info(f"🚀 Digitization started for job: {job_id}")
+        # to_thread prevents the heavy 'ingest' process from blocking the main FastAPI event loop and returns the response to request asynchronously.
+        await asyncio.to_thread(digitize, job_staging_path, job_id, doc_id_dict, output_format)
+        logger.info(f"Digitization for {job_id} completed successfully")
     except Exception as e:
         logger.error(f"Error in job {job_id}: {e}")
+        status_mgr.update_job_progress("", dg_util.DocStatus.FAILED, dg_util.JobStatus.FAILED, error=f"Error occurred while processing digitization pipeline: {str(e)}")
     finally:
-        # Crucial: Always release the semaphore slot back to the API
+        if job_staging_path.exists():
+            shutil.rmtree(job_staging_path)
+
+        # Mandatory Semaphore Release
         digitization_semaphore.release()
-        logger.debug(f"Semaphore slot released from digitization job {job_id}")
+        logger.debug(f"✅ Job {job_id} done. Semaphore released.")
 
 async def ingest_documents(job_id: str, filenames: List[str], doc_id_dict: dict):
     status_mgr = StatusManager(job_id)
@@ -106,11 +117,17 @@ async def digitize_document(
             # files are written to disk here before creating background task to avoid OOM crashes in the thread. Useful for retrying the ingestion if background task crashes
             await dg_util.stage_upload_files(job_id, filenames, Path(STAGING_DIR) / job_id, file_contents)
 
-            doc_id_dict = dg_util.initialize_job_state(job_id, dg_util.OperationType.INGESTION, filenames)
+            doc_id_dict = dg_util.initialize_job_state(job_id, dg_util.OperationType.INGESTION, filenames, output_format)
 
             background_tasks.add_task(ingest_documents, job_id, filenames, doc_id_dict)
         else:
-            background_tasks.add_task(digitize_documents, job_id, filenames, output_format)
+            # Upload the file byte stream to files in staging directory
+            # files are written to disk here before creating background task to avoid OOM crashes in the thread. Useful for retrying the ingestion if background task crashes
+            await dg_util.stage_upload_files(job_id, filenames, Path(STAGING_DIR) / job_id, file_contents)
+
+            doc_id_dict = dg_util.initialize_job_state(job_id, dg_util.OperationType.DIGITIZATION, filenames, output_format)
+
+            background_tasks.add_task(digitize_documents, job_id, filenames, doc_id_dict, output_format)
     except Exception as e:
         # release the semaphore in case of exception
         sem.release()
@@ -126,12 +143,67 @@ async def get_all_jobs(
     offset: int = 0,
     status: Optional[dg_util.JobStatus] = None
 ):
-    return {"pagination": {"total": 0, "limit": limit, "offset": offset}, "data": []}
+    """Returns high-level status of all submitted jobs (ingestion/digitization)."""
+    try:
+        all_jobs = dg_util.load_all_jobs()
+
+        # latest=true → return only the single most-recent job
+        if latest:
+            if not all_jobs:
+                return {"pagination": {"total": 0, "limit": limit, "offset": 0}, "data": []}
+            return {
+                "pagination": {"total": 1, "limit": limit, "offset": 0},
+                "data": [dg_util.format_job_response(all_jobs[0])],
+            }
+
+        # Apply optional status filter
+        if status is not None:
+            all_jobs = [j for j in all_jobs if j.get("status") == status.value]
+
+        total = len(all_jobs)
+
+        # Paginate
+        page = all_jobs[offset: offset + limit]
+
+        return {
+            "pagination": {"total": total, "limit": limit, "offset": offset},
+            "data": [dg_util.format_job_response(j) for j in page],
+        }
+    except Exception as e:
+        logger.error(f"Failed to retrieve jobs: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal failure while retrieving job information.",
+        )
+
 
 @app.get("/v1/documents/jobs/{job_id}")
 async def get_job_by_id(job_id: str):
-    # Logic to read /var/cache/{job_id}_status.json
-    return {}
+    """Returns detailed status of the specified job_id."""
+    job_status_file = Path(JOBS_DIR) / f"{job_id}_status.json"
+
+    if not job_status_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No job found with id: {job_id}",
+        )
+
+    try:
+        job_data = dg_util.read_job_file(job_status_file)
+        if job_data is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal failure while retrieving job information.",
+            )
+        return dg_util.format_job_response(job_data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to read job {job_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal failure while retrieving job information.",
+        )
 
 @app.get("/v1/documents")
 async def list_documents(
