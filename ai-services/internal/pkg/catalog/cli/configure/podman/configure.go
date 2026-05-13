@@ -17,6 +17,8 @@ import (
 	clipodman "github.com/project-ai-services/ai-services/internal/pkg/cli/podman"
 	"github.com/project-ai-services/ai-services/internal/pkg/cli/templates"
 	"github.com/project-ai-services/ai-services/internal/pkg/logger"
+	"github.com/project-ai-services/ai-services/internal/pkg/proxy"
+	"github.com/project-ai-services/ai-services/internal/pkg/proxy/caddy"
 	"github.com/project-ai-services/ai-services/internal/pkg/runtime/podman"
 	"github.com/project-ai-services/ai-services/internal/pkg/specs"
 	"github.com/project-ai-services/ai-services/internal/pkg/spinner"
@@ -88,6 +90,39 @@ func DeployCatalog(ctx context.Context, podmanURI, passwordHash, baseDir string,
 	}
 
 	s.Stop("Catalog service deployed successfully")
+	logger.Infoln("-------")
+
+	// Register routes with Caddy
+	logger.Infoln("-------")
+	adminPort, err := caddy.GetAdminPort(rt, catalogAppName)
+	if err != nil {
+		logger.Warningf("Failed to get Caddy admin port: %v\n", err)
+		logger.Infoln("Routes not registered. You can manually configure them later")
+	} else {
+		adminURL := fmt.Sprintf("http://localhost:%s", adminPort)
+		proxyManager := caddy.NewManagerWithConfig(adminURL, "my_app_server")
+
+		if err := proxyManager.HealthCheck(); err != nil {
+			logger.Warningf("Caddy not ready: %v\n", err)
+			logger.Infoln("Routes not registered. You can manually configure them later")
+		} else {
+			hostIP, err := utils.GetHostIP()
+			if err != nil {
+				logger.Warningf("Failed to get host IP: %v\n", err)
+			} else {
+				routes, err := proxy.BuildRoutesFromConfig(tp, catalogAppTemplate, hostIP)
+				if err != nil {
+					logger.Warningf("Failed to build routes from config: %v\n", err)
+				} else {
+					for _, route := range routes {
+						if err := proxyManager.RegisterRoute(route); err != nil {
+							logger.Warningf("Failed to register route %s: %v\n", route.ID, err)
+						}
+					}
+				}
+			}
+		}
+	}
 	logger.Infoln("-------")
 
 	// Print next steps similar to application create

@@ -8,7 +8,7 @@ metadata:
     ai-services.io/version: "{{ .Version }}"
     ai-services.io/component: "proxy"
   annotations:
-    ai-services.io/ports: "{{ .Values.caddy.adminPort }}:2019, {{ .Values.caddy.httpsPort }}:443"
+    ai-services.io/ports: "{{ .Values.caddy.adminPort }}:2019,{{ .Values.caddy.httpsPort }}:443"
 spec:
   containers:
     - name: caddy
@@ -20,14 +20,14 @@ spec:
           value: "0.0.0.0:2019"
       ports:
         - containerPort: 2019
+          hostPort: {{ .Values.caddy.adminPort }}
           hostIP: 127.0.0.1
         - containerPort: 443
+          hostPort: {{ .Values.caddy.httpsPort }}
           hostIP: 0.0.0.0
       volumeMounts:
         - name: caddy-data
           mountPath: /data/caddy:z
-        - name: caddy-config
-          mountPath: /config:z
       resources:
         requests:
           memory: "512Mi"
@@ -44,8 +44,4 @@ spec:
     - name: caddy-data
       hostPath:
         path: {{ .BaseDir }}/common/caddy
-        type: DirectoryOrCreate
-    - name: caddy-config
-      hostPath:
-        path: {{ .BaseDir }}/common/caddy-config
         type: DirectoryOrCreate
