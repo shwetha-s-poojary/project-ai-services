@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"text/template"
@@ -15,6 +17,8 @@ import (
 	clipodman "github.com/project-ai-services/ai-services/internal/pkg/cli/podman"
 	"github.com/project-ai-services/ai-services/internal/pkg/cli/templates"
 	"github.com/project-ai-services/ai-services/internal/pkg/logger"
+	"github.com/project-ai-services/ai-services/internal/pkg/proxy"
+	"github.com/project-ai-services/ai-services/internal/pkg/proxy/caddy"
 	"github.com/project-ai-services/ai-services/internal/pkg/runtime/podman"
 	"github.com/project-ai-services/ai-services/internal/pkg/specs"
 	"github.com/project-ai-services/ai-services/internal/pkg/spinner"
@@ -24,6 +28,8 @@ import (
 const (
 	catalogAppName     = "ai-services"
 	catalogAppTemplate = "catalog"
+	dirPerm            = 0o755
+	filePerm           = 0o644
 	kindSecret         = "Secret"
 )
 
@@ -49,21 +55,14 @@ func DeployCatalog(ctx context.Context, podmanURI, passwordHash, baseDir string,
 	}
 
 	// collect all secret names used as part of deployment
-	catalogSecrets, err := collectSecretNames(tp, tmpls, argParams)
+	isDeployed, existingResources, err := checkCatalogStatus(rt, tp, tmpls, argParams)
 	if err != nil {
-		s.Fail("failed to collect catalog secret names")
+		s.Fail("failed to check existing resources")
 
-		return fmt.Errorf("failed to collect catalog secret names: %w", err)
+		return fmt.Errorf("failed to check existing resources: %w", err)
 	}
 
-	existingResources, err := helpers.CheckExistingResourcesForApplication(rt, catalogAppName, catalogSecrets)
-	if err != nil {
-		s.Fail("failed to check existing pods")
-
-		return fmt.Errorf("failed to check existing pods: %w", err)
-	}
-
-	if len(existingResources) == len(tmpls) {
+	if isDeployed {
 		s.Stop("Catalog service already deployed")
 		logger.Infof("Catalog pod already exists: %v\n", existingResources)
 
@@ -78,12 +77,52 @@ func DeployCatalog(ctx context.Context, podmanURI, passwordHash, baseDir string,
 		return fmt.Errorf("failed to load values: %w", err)
 	}
 
+	// Generate and write Caddyfile before deploying
+	if err := generateCaddyfile(baseDir, values); err != nil {
+		s.Fail("failed to generate Caddyfile")
+
+		return fmt.Errorf("failed to generate Caddyfile: %w", err)
+	}
+
 	// Execute pod templates
 	if err := executePodLayers(rt, tp, tmpls, appMetadata, values, baseDir, argParams, s, existingResources); err != nil {
 		return err
 	}
 
 	s.Stop("Catalog service deployed successfully")
+	logger.Infoln("-------")
+
+	// Register routes with Caddy
+	logger.Infoln("-------")
+	adminPort, err := caddy.GetAdminPort(rt, catalogAppName)
+	if err != nil {
+		logger.Warningf("Failed to get Caddy admin port: %v\n", err)
+		logger.Infoln("Routes not registered. You can manually configure them later")
+	} else {
+		adminURL := fmt.Sprintf("http://localhost:%s", adminPort)
+		proxyManager := caddy.NewManagerWithConfig(adminURL, "my_app_server")
+
+		if err := proxyManager.HealthCheck(); err != nil {
+			logger.Warningf("Caddy not ready: %v\n", err)
+			logger.Infoln("Routes not registered. You can manually configure them later")
+		} else {
+			hostIP, err := utils.GetHostIP()
+			if err != nil {
+				logger.Warningf("Failed to get host IP: %v\n", err)
+			} else {
+				routes, err := proxy.BuildRoutesFromConfig(tp, catalogAppTemplate, hostIP)
+				if err != nil {
+					logger.Warningf("Failed to build routes from config: %v\n", err)
+				} else {
+					for _, route := range routes {
+						if err := proxyManager.RegisterRoute(route); err != nil {
+							logger.Warningf("Failed to register route %s: %v\n", route.ID, err)
+						}
+					}
+				}
+			}
+		}
+	}
 	logger.Infoln("-------")
 
 	// Print next steps similar to application create
@@ -93,6 +132,20 @@ func DeployCatalog(ctx context.Context, podmanURI, passwordHash, baseDir string,
 	}
 
 	return nil
+}
+
+func checkCatalogStatus(rt *podman.PodmanClient, tp templates.Template, tmpls map[string]*template.Template, argParams map[string]string) (bool, []string, error) {
+	catalogSecrets, err := collectSecretNames(tp, tmpls, argParams)
+	if err != nil {
+		return false, nil, err
+	}
+
+	existingResources, err := helpers.CheckExistingResourcesForApplication(rt, catalogAppName, catalogSecrets)
+	if err != nil {
+		return false, nil, err
+	}
+
+	return len(existingResources) == len(tmpls), existingResources, nil
 }
 
 // loadCatalogTemplates loads the catalog template provider, metadata, and templates.
@@ -243,6 +296,30 @@ func executePodTemplate(rt *podman.PodmanClient, tp templates.Template, tmpls ma
 	if err := clipodman.DeployPodAndReadinessCheck(rt, podSpec, podTemplateName, reader, podDeployOptions); err != nil {
 		return fmt.Errorf("failed to deploy pod: %w", err)
 	}
+
+	return nil
+}
+
+// generateCaddyfile copies the static Caddyfile to the caddy directory.
+func generateCaddyfile(baseDir string, values map[string]any) error {
+	// Read the static Caddyfile
+	caddyfileContent, err := assets.CatalogFS.ReadFile("catalog/podman/Caddyfile")
+	if err != nil {
+		return fmt.Errorf("failed to read Caddyfile: %w", err)
+	}
+
+	// Ensure directory exists and write Caddyfile
+	caddyDir := filepath.Join(baseDir, "common", "caddy")
+	if err := os.MkdirAll(caddyDir, dirPerm); err != nil {
+		return fmt.Errorf("failed to create caddy directory: %w", err)
+	}
+
+	caddyfilePath := filepath.Join(caddyDir, "Caddyfile")
+	if err := os.WriteFile(caddyfilePath, caddyfileContent, filePerm); err != nil {
+		return fmt.Errorf("failed to write Caddyfile: %w", err)
+	}
+
+	logger.Infof("Copied Caddyfile to: %s\n", caddyfilePath)
 
 	return nil
 }
